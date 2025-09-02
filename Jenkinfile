@@ -1,0 +1,44 @@
+#!/bin/bash
+set -e
+set -x
+
+APP=DEV2-CP-API
+API_WEBROOT="/opt/nginx/ahct/dev1/workspace/DEV2/CP-API"
+DATE=$(date +"%Y-%m-%d")
+
+# Backup .env
+BKP_DIR="/tmp/${APP}_env_backup"
+mkdir -p $BKP_DIR
+if [ -f "$API_WEBROOT/.env" ]; then
+    cp $API_WEBROOT/.env $BKP_DIR/.env_$DATE
+    echo ".env file backed up at $BKP_DIR/.env_$DATE"
+fi
+
+# Pull latest code from git
+cd $API_WEBROOT
+git fetch --all
+git reset --hard origin/develop
+
+# Install PHP dependencies if composer.lock changed
+if [ -f "composer.lock" ]; then
+    composer install --no-dev --optimize-autoloader
+fi
+
+# Restore .env if missing
+if [ ! -f ".env" ]; then
+    cp $BKP_DIR/.env_$DATE .env
+    echo "Restored .env from backup"
+fi
+
+# Set ownership and permissions
+chown -R nginx:nginx $API_WEBROOT
+chmod -R 755 $API_WEBROOT
+
+# Set SELinux context
+chcon -R system_u:object_r:httpd_sys_content_t:s0 $API_WEBROOT
+chcon -R system_u:object_r:httpd_sys_rw_content_t:s0 $API_WEBROOT/storage
+
+# Clear Laravel cache
+sudo -u nginx php artisan cache:clear
+
+echo "Deployment completed successfully!"
